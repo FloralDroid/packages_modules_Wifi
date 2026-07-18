@@ -232,6 +232,7 @@ public class WifiServiceImpl extends BaseWifiService {
     private final BuildProperties mBuildProperties;
 
     private final DefaultClientModeManager mDefaultClientModeManager;
+    private final FloralWifiSimulation mFloralWifiSimulation;
 
     /**
      * Callback for use with LocalOnlyHotspot to unregister requesting applications upon death.
@@ -365,6 +366,8 @@ public class WifiServiceImpl extends BaseWifiService {
         mLastCallerInfoManager = mWifiInjector.getLastCallerInfoManager();
         mBuildProperties = mWifiInjector.getBuildProperties();
         mDefaultClientModeManager = mWifiInjector.getDefaultClientModeManager();
+        mFloralWifiSimulation = new FloralWifiSimulation(
+                mContext, new SystemPropertyService());
     }
 
     /**
@@ -595,6 +598,20 @@ public class WifiServiceImpl extends BaseWifiService {
         int callingUid = Binder.getCallingUid();
         long ident = Binder.clearCallingIdentity();
         mLog.info("startScan uid=%").c(callingUid).flush();
+        if (mFloralWifiSimulation.isEnabled()) {
+            try {
+                mWifiPermissionsUtil.enforceCanAccessScanResults(packageName, featureId,
+                        callingUid, null);
+                sendSuccessfulScanBroadcast();
+                return true;
+            } catch (SecurityException e) {
+                Log.w(TAG, "Permission violation - simulated scan not allowed for uid="
+                        + callingUid + ", packageName=" + packageName + ", reason=" + e);
+                return false;
+            } finally {
+                Binder.restoreCallingIdentity(ident);
+            }
+        }
         synchronized (this) {
             if (mInIdleMode) {
                 // Need to send an immediate scan result broadcast in case the
@@ -646,6 +663,19 @@ public class WifiServiceImpl extends BaseWifiService {
             Binder.restoreCallingIdentity(callingIdentity);
         }
 
+    }
+
+    // Report a completed synthetic scan without invoking wificond or a hardware interface.
+    private void sendSuccessfulScanBroadcast() {
+        long callingIdentity = Binder.clearCallingIdentity();
+        try {
+            Intent intent = new Intent(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
+            intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
+            intent.putExtra(WifiManager.EXTRA_RESULTS_UPDATED, true);
+            mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+        } finally {
+            Binder.restoreCallingIdentity(callingIdentity);
+        }
     }
 
     /**
@@ -1007,6 +1037,9 @@ public class WifiServiceImpl extends BaseWifiService {
         enforceAccessPermission();
         if (isVerboseLoggingEnabled()) {
             mLog.info("getWifiEnabledState uid=%").c(Binder.getCallingUid()).flush();
+        }
+        if (mFloralWifiSimulation.isEnabled()) {
+            return WifiManager.WIFI_STATE_ENABLED;
         }
         return getPrimaryClientModeManagerBlockingThreadSafe().syncGetWifiState();
     }
@@ -3158,10 +3191,15 @@ public class WifiServiceImpl extends BaseWifiService {
         }
         long ident = Binder.clearCallingIdentity();
         try {
-            WifiInfo wifiInfo = mWifiThreadRunner.call(
-                    () -> getClientModeManagerIfSecondaryCmmRequestedByCallerPresent(
-                            uid, callingPackage)
-                            .syncRequestConnectionInfo(), new WifiInfo());
+            WifiInfo wifiInfo;
+            if (mFloralWifiSimulation.isEnabled()) {
+                wifiInfo = mFloralWifiSimulation.createConnectionInfo();
+            } else {
+                wifiInfo = mWifiThreadRunner.call(
+                        () -> getClientModeManagerIfSecondaryCmmRequestedByCallerPresent(
+                                uid, callingPackage)
+                                .syncRequestConnectionInfo(), new WifiInfo());
+            }
             long redactions = wifiInfo.getApplicableRedactions();
             if (mWifiPermissionsUtil.checkLocalMacAddressPermission(uid)) {
                 if (isVerboseLoggingEnabled()) {
@@ -3216,6 +3254,9 @@ public class WifiServiceImpl extends BaseWifiService {
         try {
             mWifiPermissionsUtil.enforceCanAccessScanResults(callingPackage, callingFeatureId,
                     uid, null);
+            if (mFloralWifiSimulation.isEnabled()) {
+                return mFloralWifiSimulation.createScanResults();
+            }
             List<ScanResult> scanResults = mWifiThreadRunner.call(
                     mScanRequestProxy::getScanResults, Collections.emptyList());
             return scanResults;
@@ -3557,6 +3598,9 @@ public class WifiServiceImpl extends BaseWifiService {
         int callingUid = Binder.getCallingUid();
         if (isVerboseLoggingEnabled()) {
             mLog.info("getDhcpInfo uid=%").c(callingUid).flush();
+        }
+        if (mFloralWifiSimulation.isEnabled()) {
+            return mFloralWifiSimulation.createDhcpInfo();
         }
         DhcpResultsParcelable dhcpResults = mWifiThreadRunner.call(
                 () -> getClientModeManagerIfSecondaryCmmRequestedByCallerPresent(
