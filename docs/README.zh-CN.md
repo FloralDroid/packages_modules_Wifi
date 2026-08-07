@@ -6,7 +6,7 @@ FloralDroid 在保留现有以太网接口作为唯一数据通路的同时，�
 
 ## 启动配置
 
-Vendor Wi-Fi 模型读取 `/mnt/vendor/floral_stream/wifi.json`。整体校验通过后，文件提供 AP 列表、当前 BSSID、终端 MAC、安全类型、密码和链路基线并启动模拟。文件缺失、不可读或无效时保持关闭。不再支持 Wi-Fi 启动参数。
+Vendor Wi-Fi 模型读取 `/ipc/floral_stream/wifi.json`。整体校验通过后，文件提供 AP 列表、当前 BSSID、终端 MAC、安全类型、密码和链路基线并启动模拟。文件缺失、不可读或无效时保持关闭。不再支持 Wi-Fi 启动参数。
 
 ## 网络归属
 

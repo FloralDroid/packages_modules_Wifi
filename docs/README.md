@@ -7,7 +7,7 @@ existing Ethernet interface as the only data path.
 
 ## Startup configuration
 
-The vendor Wi-Fi model reads `/mnt/vendor/floral_stream/wifi.json`. A valid document enables the
+The vendor Wi-Fi model reads `/ipc/floral_stream/wifi.json`. A valid document enables the
 simulation and supplies the AP list, connected BSSID, station MAC, security, credentials, and link
 baselines. Missing, unreadable, or invalid content leaves simulation disabled. Boot parameters are
 not supported.
