@@ -19,12 +19,17 @@ package com.android.server.wifi;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 
 import android.content.Context;
+import android.content.Intent;
 import android.net.wifi.ScanResult;
 import android.net.wifi.SupplicantState;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
+import android.os.UserHandle;
 
 import androidx.test.filters.SmallTest;
 
@@ -35,6 +40,7 @@ import floral.device.wifi.WifiSnapshot;
 
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -62,6 +68,24 @@ public class FloralWifiSimulationTest extends WifiBaseTest {
         assertFalse(simulation.isConfigured());
         assertFalse(simulation.isEnabled());
         assertTrue(simulation.createScanResults().isEmpty());
+    }
+
+    @Test
+    public void systemToggleSendsWifiStateChangedBroadcast() {
+        FloralWifiSimulation simulation =
+                new FloralWifiSimulation(mContext, mStateProvider);
+
+        assertTrue(simulation.setEnabledFromSystem(true));
+
+        ArgumentCaptor<Intent> intent = ArgumentCaptor.forClass(Intent.class);
+        verify(mContext).sendStickyBroadcastAsUser(intent.capture(), eq(UserHandle.ALL));
+        assertEquals(WifiManager.WIFI_STATE_CHANGED_ACTION, intent.getValue().getAction());
+        assertEquals(WifiManager.WIFI_STATE_ENABLED,
+                intent.getValue().getIntExtra(WifiManager.EXTRA_WIFI_STATE,
+                        WifiManager.WIFI_STATE_UNKNOWN));
+        assertEquals(WifiManager.WIFI_STATE_DISABLED,
+                intent.getValue().getIntExtra(WifiManager.EXTRA_PREVIOUS_WIFI_STATE,
+                        WifiManager.WIFI_STATE_UNKNOWN));
     }
 
     @Test

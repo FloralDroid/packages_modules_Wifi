@@ -33,6 +33,7 @@ import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiSsid;
+import android.os.Binder;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.SystemClock;
@@ -375,11 +376,21 @@ final class FloralWifiSimulation {
                 ? WifiManager.WIFI_STATE_ENABLED : WifiManager.WIFI_STATE_DISABLED);
         intent.putExtra(WifiManager.EXTRA_PREVIOUS_WIFI_STATE, wasEnabled
                 ? WifiManager.WIFI_STATE_ENABLED : WifiManager.WIFI_STATE_DISABLED);
-        mContext.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
+        long callingIdentity = Binder.clearCallingIdentity();
+        try {
+            mContext.sendStickyBroadcastAsUser(intent, UserHandle.ALL);
+        } finally {
+            Binder.restoreCallingIdentity(callingIdentity);
+        }
     }
 
     private void sendNetworkStateChangedBroadcast(NetworkInfo.DetailedState state) {
-        ClientModeImpl.sendNetworkChangeBroadcast(mContext, state, false);
+        long callingIdentity = Binder.clearCallingIdentity();
+        try {
+            ClientModeImpl.sendNetworkChangeBroadcast(mContext, state, false);
+        } finally {
+            Binder.restoreCallingIdentity(callingIdentity);
+        }
     }
 
     @Nullable
