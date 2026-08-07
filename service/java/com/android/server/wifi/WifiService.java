@@ -28,6 +28,8 @@ import com.android.server.SystemService;
 public final class WifiService extends SystemService {
 
     private static final String TAG = "WifiService";
+    private static final String FLORAL_WIFI_STATE_INSTANCE =
+            "floral.device.wifi.IWifiState/default";
     // Notification channels used by the wifi service.
     public static final String NOTIFICATION_NETWORK_STATUS = "NETWORK_STATUS";
     public static final String NOTIFICATION_NETWORK_ALERTS = "NETWORK_ALERTS";
@@ -40,7 +42,8 @@ public final class WifiService extends SystemService {
         super(contextBase);
         mWifiContext = new WifiContext(contextBase);
         WifiInjector injector = new WifiInjector(mWifiContext);
-        mImpl = new WifiServiceImpl(mWifiContext, injector);
+        mImpl = new WifiServiceImpl(mWifiContext, injector,
+                () -> getBinderService(FLORAL_WIFI_STATE_INSTANCE));
     }
 
     @Override

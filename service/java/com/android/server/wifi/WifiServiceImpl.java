@@ -319,6 +319,11 @@ public class WifiServiceImpl extends BaseWifiService {
 
 
     public WifiServiceImpl(Context context, WifiInjector wifiInjector) {
+        this(context, wifiInjector, () -> null);
+    }
+
+    WifiServiceImpl(Context context, WifiInjector wifiInjector,
+            FloralWifiSimulation.BinderLookup floralWifiBinderLookup) {
         mContext = context;
         mWifiInjector = wifiInjector;
         mClock = wifiInjector.getClock();
@@ -366,8 +371,7 @@ public class WifiServiceImpl extends BaseWifiService {
         mLastCallerInfoManager = mWifiInjector.getLastCallerInfoManager();
         mBuildProperties = mWifiInjector.getBuildProperties();
         mDefaultClientModeManager = mWifiInjector.getDefaultClientModeManager();
-        mFloralWifiSimulation = new FloralWifiSimulation(
-                mContext, new SystemPropertyService());
+        mFloralWifiSimulation = new FloralWifiSimulation(mContext, floralWifiBinderLookup);
     }
 
     /**
@@ -944,6 +948,9 @@ public class WifiServiceImpl extends BaseWifiService {
 
         mLog.info("setWifiEnabled package=% uid=% enable=%").c(packageName)
                 .c(Binder.getCallingUid()).c(enable).flush();
+        if (mFloralWifiSimulation.isConfigured()) {
+            return mFloralWifiSimulation.setEnabledFromSystem(enable);
+        }
         long ident = Binder.clearCallingIdentity();
         try {
             if (!mSettingsStore.handleWifiToggled(enable)) {
@@ -1038,8 +1045,9 @@ public class WifiServiceImpl extends BaseWifiService {
         if (isVerboseLoggingEnabled()) {
             mLog.info("getWifiEnabledState uid=%").c(Binder.getCallingUid()).flush();
         }
-        if (mFloralWifiSimulation.isEnabled()) {
-            return WifiManager.WIFI_STATE_ENABLED;
+        if (mFloralWifiSimulation.isConfigured()) {
+            return mFloralWifiSimulation.isEnabled()
+                    ? WifiManager.WIFI_STATE_ENABLED : WifiManager.WIFI_STATE_DISABLED;
         }
         return getPrimaryClientModeManagerBlockingThreadSafe().syncGetWifiState();
     }
@@ -2330,6 +2338,9 @@ public class WifiServiceImpl extends BaseWifiService {
             return false;
         }
         mLog.info("disconnect uid=%").c(Binder.getCallingUid()).flush();
+        if (mFloralWifiSimulation.isConfigured()) {
+            return mFloralWifiSimulation.disconnectFromSystem();
+        }
         mWifiThreadRunner.post(() -> mActiveModeWarden.getPrimaryClientModeManager().disconnect());
         return true;
     }
@@ -3192,7 +3203,7 @@ public class WifiServiceImpl extends BaseWifiService {
         long ident = Binder.clearCallingIdentity();
         try {
             WifiInfo wifiInfo;
-            if (mFloralWifiSimulation.isEnabled()) {
+            if (mFloralWifiSimulation.isConfigured()) {
                 wifiInfo = mFloralWifiSimulation.createConnectionInfo();
             } else {
                 wifiInfo = mWifiThreadRunner.call(
@@ -3599,7 +3610,7 @@ public class WifiServiceImpl extends BaseWifiService {
         if (isVerboseLoggingEnabled()) {
             mLog.info("getDhcpInfo uid=%").c(callingUid).flush();
         }
-        if (mFloralWifiSimulation.isEnabled()) {
+        if (mFloralWifiSimulation.isConnected()) {
             return mFloralWifiSimulation.createDhcpInfo();
         }
         DhcpResultsParcelable dhcpResults = mWifiThreadRunner.call(
@@ -4957,6 +4968,15 @@ public class WifiServiceImpl extends BaseWifiService {
         mLog.info("connect uid=%").c(uid).flush();
         mWifiThreadRunner.post(() -> {
             ActionListenerWrapper wrapper = new ActionListenerWrapper(callback);
+            final int floralResult = mFloralWifiSimulation.connectFromSystem(config);
+            if (floralResult != FloralWifiSimulation.CONNECT_NOT_HANDLED) {
+                if (floralResult == FloralWifiSimulation.CONNECT_SUCCEEDED) {
+                    wrapper.sendSuccess();
+                } else {
+                    wrapper.sendFailure(WifiManager.ERROR);
+                }
+                return;
+            }
             final NetworkUpdateResult result;
             // if connecting using WifiConfiguration, save the network first
             if (config != null) {
