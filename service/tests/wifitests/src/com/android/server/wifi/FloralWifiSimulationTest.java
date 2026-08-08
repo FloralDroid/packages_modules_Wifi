@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import android.content.Context;
@@ -96,7 +97,7 @@ public class FloralWifiSimulationTest extends WifiBaseTest {
         FloralWifiSimulation simulation =
                 new FloralWifiSimulation(mContext, mStateProvider);
 
-        WifiInfo info = simulation.createConnectionInfo();
+        WifiInfo info = simulation.createConnectionInfo(42);
         List<ScanResult> scanResults = simulation.createScanResults();
 
         assertTrue(simulation.isConfigured());
@@ -106,6 +107,7 @@ public class FloralWifiSimulationTest extends WifiBaseTest {
         assertEquals(-51, info.getRssi());
         assertEquals(5180, info.getFrequency());
         assertEquals(866, info.getLinkSpeed());
+        assertEquals(42, info.getNetworkId());
         assertEquals(SupplicantState.COMPLETED, info.getSupplicantState());
         assertEquals(2, scanResults.size());
         assertEquals("Floral Guest", scanResults.get(1).SSID);
@@ -131,6 +133,41 @@ public class FloralWifiSimulationTest extends WifiBaseTest {
     }
 
     @Test
+    public void settingsConnectsOpenNetworkWithoutCredential() {
+        mStateProvider.addAccessPoint(9, "Guest", "02:11:22:33:44:99", 0, -65);
+        FloralWifiSimulation simulation =
+                new FloralWifiSimulation(mContext, mStateProvider);
+        WifiConfiguration configuration = new WifiConfiguration();
+        configuration.SSID = "\"Guest\"";
+        configuration.setSecurityParams(WifiConfiguration.SECURITY_TYPE_OPEN);
+
+        int result = simulation.connectFromSystem(configuration);
+
+        assertEquals(FloralWifiSimulation.CONNECT_SUCCEEDED, result);
+        assertEquals("Guest", mStateProvider.lastSsid);
+        assertEquals("", mStateProvider.lastCredential);
+        assertEquals(0, mStateProvider.lastSecurity);
+    }
+
+    @Test
+    public void settingsConnectPropagatesStateServiceRejection() {
+        mStateProvider.addAccessPoint(8, "Secured", "02:11:22:33:44:88", 1, -55);
+        mStateProvider.connectResult = 2;
+        FloralWifiSimulation simulation =
+                new FloralWifiSimulation(mContext, mStateProvider);
+        WifiConfiguration configuration = new WifiConfiguration();
+        configuration.SSID = "\"Secured\"";
+        configuration.preSharedKey = "\"wrong-password\"";
+        configuration.setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
+
+        int result = simulation.connectFromSystem(configuration);
+
+        assertEquals(FloralWifiSimulation.CONNECT_FAILED, result);
+        verify(mContext, never()).sendStickyBroadcastAsUser(
+                org.mockito.Matchers.any(Intent.class), eq(UserHandle.ALL));
+    }
+
+    @Test
     public void unrelatedNetworkFallsThroughToRealWifiStack() {
         mStateProvider.addAccessPoint(1, "Floral", "02:11:22:33:44:55", 0, -50);
         FloralWifiSimulation simulation =
@@ -150,6 +187,7 @@ public class FloralWifiSimulationTest extends WifiBaseTest {
         String lastSsid;
         String lastCredential;
         int lastSecurity;
+        int connectResult;
 
         FakeStateProvider() {
             profile.version = 1;
@@ -216,7 +254,7 @@ public class FloralWifiSimulationTest extends WifiBaseTest {
             lastSsid = ssid;
             lastCredential = credential;
             lastSecurity = security;
-            return success();
+            return result(connectResult);
         }
 
         @Override
@@ -226,8 +264,12 @@ public class FloralWifiSimulationTest extends WifiBaseTest {
         }
 
         private static WifiControlResult success() {
+            return result(0);
+        }
+
+        private static WifiControlResult result(int resultCode) {
             WifiControlResult result = new WifiControlResult();
-            result.result = 0;
+            result.result = resultCode;
             return result;
         }
     }

@@ -81,6 +81,7 @@ import android.net.wifi.ScanResult;
 import android.net.wifi.SoftApCapability;
 import android.net.wifi.SoftApConfiguration;
 import android.net.wifi.SoftApInfo;
+import android.net.wifi.SupplicantState;
 import android.net.wifi.WifiAnnotations.WifiStandard;
 import android.net.wifi.WifiAvailableChannel;
 import android.net.wifi.WifiClient;
@@ -3204,7 +3205,8 @@ public class WifiServiceImpl extends BaseWifiService {
         try {
             WifiInfo wifiInfo;
             if (mFloralWifiSimulation.isConfigured()) {
-                wifiInfo = mFloralWifiSimulation.createConnectionInfo();
+                wifiInfo = mWifiThreadRunner.call(this::createFloralConnectionInfo,
+                        new WifiInfo());
             } else {
                 wifiInfo = mWifiThreadRunner.call(
                         () -> getClientModeManagerIfSecondaryCmmRequestedByCallerPresent(
@@ -3247,6 +3249,25 @@ public class WifiServiceImpl extends BaseWifiService {
         } finally {
             Binder.restoreCallingIdentity(ident);
         }
+    }
+
+    /** Builds simulated connection info with the matching framework configuration ID. */
+    private WifiInfo createFloralConnectionInfo() {
+        WifiInfo wifiInfo = mFloralWifiSimulation.createConnectionInfo(
+                WifiConfiguration.INVALID_NETWORK_ID);
+        if (wifiInfo.getSupplicantState() != SupplicantState.COMPLETED) {
+            return wifiInfo;
+        }
+
+        WifiConfiguration lookup = new WifiConfiguration();
+        lookup.SSID = wifiInfo.getSSID();
+        lookup.setSecurityParams(convertWifiInfoSecurityTypeToWifiConfiguration(
+                wifiInfo.getCurrentSecurityType()));
+        WifiConfiguration saved = mWifiConfigManager.getConfiguredNetwork(lookup.getProfileKey());
+        if (saved != null) {
+            wifiInfo.setNetworkId(saved.networkId);
+        }
+        return wifiInfo;
     }
 
     /**
@@ -4968,15 +4989,6 @@ public class WifiServiceImpl extends BaseWifiService {
         mLog.info("connect uid=%").c(uid).flush();
         mWifiThreadRunner.post(() -> {
             ActionListenerWrapper wrapper = new ActionListenerWrapper(callback);
-            final int floralResult = mFloralWifiSimulation.connectFromSystem(config);
-            if (floralResult != FloralWifiSimulation.CONNECT_NOT_HANDLED) {
-                if (floralResult == FloralWifiSimulation.CONNECT_SUCCEEDED) {
-                    wrapper.sendSuccess();
-                } else {
-                    wrapper.sendFailure(WifiManager.ERROR);
-                }
-                return;
-            }
             final NetworkUpdateResult result;
             // if connecting using WifiConfiguration, save the network first
             if (config != null) {
@@ -5003,6 +5015,20 @@ public class WifiServiceImpl extends BaseWifiService {
             if (configuration == null) {
                 Log.e(TAG, "connect to Invalid network Id=" + netIdArg);
                 wrapper.sendFailure(WifiManager.ERROR);
+                return;
+            }
+            // Save the configuration before publishing the simulated connection. Settings and
+            // WifiTracker require a real network ID to associate WifiInfo with the selected AP.
+            WifiConfiguration floralConfiguration = config != null ? config
+                    : mWifiConfigManager.getConfiguredNetworkWithPassword(result.getNetworkId());
+            final int floralResult =
+                    mFloralWifiSimulation.connectFromSystem(floralConfiguration);
+            if (floralResult != FloralWifiSimulation.CONNECT_NOT_HANDLED) {
+                if (floralResult == FloralWifiSimulation.CONNECT_SUCCEEDED) {
+                    wrapper.sendSuccess();
+                } else {
+                    wrapper.sendFailure(WifiManager.ERROR);
+                }
                 return;
             }
             if (configuration.enterpriseConfig != null

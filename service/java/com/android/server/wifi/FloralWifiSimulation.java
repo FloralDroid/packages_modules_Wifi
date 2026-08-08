@@ -66,7 +66,6 @@ import java.util.Locale;
  */
 final class FloralWifiSimulation {
     private static final String TAG = "FloralWifiSimulation";
-    private static final int SIMULATED_NETWORK_ID = 0;
 
     static final int CONNECT_NOT_HANDLED = 0;
     static final int CONNECT_SUCCEEDED = 1;
@@ -278,7 +277,7 @@ final class FloralWifiSimulation {
 
     /** Creates a fresh value so caller-specific redaction can be applied safely. */
     @NonNull
-    WifiInfo createConnectionInfo() {
+    WifiInfo createConnectionInfo(int networkId) {
         WifiSnapshot snapshot = mStateProvider.getSnapshot();
         WifiProfile profile = mStateProvider.getProfile();
         if (snapshot == null || !snapshot.enabled || snapshot.connectedAccessPointId == 0) {
@@ -293,7 +292,7 @@ final class FloralWifiSimulation {
                 .setSsid(ssidBytes)
                 .setBssid(snapshot.bssid)
                 .setRssi(snapshot.rssiDbm)
-                .setNetworkId(SIMULATED_NETWORK_ID)
+                .setNetworkId(networkId)
                 .setCurrentSecurityType(toFrameworkSecurity(snapshot.security))
                 .build();
         if (profile != null) info.setMacAddress(profile.stationMacAddress);
