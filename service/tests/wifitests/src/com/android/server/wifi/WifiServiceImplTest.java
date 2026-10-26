@@ -190,6 +190,12 @@ import com.android.wifi.resources.R;
 
 import com.google.common.base.Strings;
 
+import floral.device.wifi.IWifiState;
+import floral.device.wifi.WifiAccessPoint;
+import floral.device.wifi.WifiControlResult;
+import floral.device.wifi.WifiProfile;
+import floral.device.wifi.WifiSnapshot;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -4653,6 +4659,79 @@ public class WifiServiceImplTest extends WifiBaseTest {
                 any(ActionListenerWrapper.class), anyInt());
         verify(mWifiMetrics).logUserActionEvent(eq(UserActionEvent.EVENT_ADD_OR_UPDATE_NETWORK),
                 anyInt());
+    }
+
+    @Test
+    public void connectToFloralNetworkSavesConfigBeforePublishingConnection() throws Exception {
+        when(mContext.checkPermission(eq(android.Manifest.permission.NETWORK_SETTINGS),
+                anyInt(), anyInt())).thenReturn(PackageManager.PERMISSION_GRANTED);
+        when(mWifiPermissionsUtil.checkNetworkSettingsPermission(anyInt())).thenReturn(true);
+
+        IWifiState state = mock(IWifiState.class);
+        IBinder binder = mock(IBinder.class);
+        when(binder.queryLocalInterface(anyString())).thenReturn(state);
+        when(binder.isBinderAlive()).thenReturn(true);
+        when(state.asBinder()).thenReturn(binder);
+
+        WifiAccessPoint accessPoint = new WifiAccessPoint();
+        accessPoint.identity = 8;
+        accessPoint.ssid = "Floral Test";
+        accessPoint.bssid = "02:11:22:33:44:88";
+        accessPoint.security = 1;
+        accessPoint.rssiDbm = -51;
+        accessPoint.frequencyMhz = 5180;
+        accessPoint.channelWidthMhz = 80;
+        accessPoint.linkSpeedMbps = 866;
+        when(state.getAccessPoints()).thenReturn(new WifiAccessPoint[]{accessPoint});
+
+        WifiControlResult controlResult = new WifiControlResult();
+        controlResult.result = 0;
+        when(state.connectFromSystem("Floral Test", accessPoint.bssid, 1, "correct-password"))
+                .thenReturn(controlResult);
+
+        WifiSnapshot snapshot = new WifiSnapshot();
+        snapshot.enabled = true;
+        snapshot.connectedAccessPointId = accessPoint.identity;
+        snapshot.ssid = accessPoint.ssid;
+        snapshot.bssid = accessPoint.bssid;
+        snapshot.security = accessPoint.security;
+        snapshot.rssiDbm = accessPoint.rssiDbm;
+        snapshot.frequencyMhz = accessPoint.frequencyMhz;
+        snapshot.channelWidthMhz = accessPoint.channelWidthMhz;
+        snapshot.linkSpeedMbps = accessPoint.linkSpeedMbps;
+        when(state.getSnapshot()).thenReturn(snapshot);
+
+        WifiProfile profile = new WifiProfile();
+        profile.stationMacAddress = "02:00:00:12:00:02";
+        when(state.getProfile()).thenReturn(profile);
+
+        WifiConfiguration config = new WifiConfiguration();
+        config.SSID = "\"Floral Test\"";
+        config.BSSID = accessPoint.bssid;
+        config.preSharedKey = "\"correct-password\"";
+        config.setSecurityParams(WifiConfiguration.SECURITY_TYPE_PSK);
+        NetworkUpdateResult updateResult = new NetworkUpdateResult(TEST_NETWORK_ID);
+        when(mWifiConfigManager.addOrUpdateNetwork(eq(config), anyInt()))
+                .thenReturn(updateResult);
+        when(mWifiConfigManager.getConfiguredNetwork(TEST_NETWORK_ID)).thenReturn(config);
+        WifiConfiguration savedConfig = new WifiConfiguration(config);
+        savedConfig.networkId = TEST_NETWORK_ID;
+        when(mWifiConfigManager.getConfiguredNetwork(config.getProfileKey()))
+                .thenReturn(savedConfig);
+
+        WifiServiceImpl service = new WifiServiceImpl(mContext, mWifiInjector, () -> binder);
+        service.connect(config, WifiConfiguration.INVALID_NETWORK_ID, mActionListener);
+        mLooper.dispatchAll();
+
+        InOrder order = inOrder(mWifiConfigManager, state);
+        order.verify(mWifiConfigManager).addOrUpdateNetwork(eq(config), anyInt());
+        order.verify(state).connectFromSystem(
+                "Floral Test", accessPoint.bssid, 1, "correct-password");
+        verify(mConnectHelper, never()).connectToNetwork(any(), any(), anyInt());
+        verify(mActionListener).onSuccess();
+
+        WifiInfo info = service.getConnectionInfo(TEST_PACKAGE_NAME, TEST_FEATURE_ID);
+        assertThat(info.getNetworkId()).isEqualTo(TEST_NETWORK_ID);
     }
 
     @Test
